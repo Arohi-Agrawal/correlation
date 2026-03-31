@@ -1,4 +1,35 @@
+
 "use client";
+import { profileColumn } from "@/lib/correlation/profiler";
+import { computeNormalizationScore } from "@/lib/normalization/normalizationScore";
+
+function NormalizationStatusList({ columns, fileLabel }: { columns: any[]; fileLabel: string }) {
+  return (
+    <section className="p-3 bg-slate-50 border border-slate-200 rounded">
+      <h4 className="mb-2 text-sm font-semibold text-slate-700">{fileLabel} Columns & Normalization</h4>
+      <ul className="list-disc ml-5 text-xs">
+        {columns.map((col, idx) => {
+          const profile = profileColumn(col);
+          let normalizationLevel = "none";
+          try {
+            normalizationLevel = computeNormalizationScore(profile).normalizationLevel;
+          } catch {}
+          return (
+            <li key={col.id}>
+              <span className="font-semibold">{col.originalName}</span>: <span className={
+                normalizationLevel === "strong"
+                  ? "text-rose-700"
+                  : normalizationLevel === "light"
+                  ? "text-amber-700"
+                  : "text-slate-500"
+              }>{normalizationLevel}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
 import { useEffect, useMemo, useState } from "react";
 import { CandidatePanel } from "@/components/CandidatePanel";
@@ -246,6 +277,12 @@ export default function HomePage() {
             <SummaryCell label="Semantic Matches" value={String(result.semanticMatches.length)} />
             <SummaryCell label="Unmatched" value={String(result.unmatched.length)} />
             <SummaryCell label="Duplicate/Suspicious" value={String(result.duplicateOrSuspiciousColumns.length)} />
+          </div>
+
+          {/* Normalization Status for all columns in both files */}
+          <div className="mb-4 grid gap-6 md:grid-cols-2">
+            <NormalizationStatusList columns={result.fileA.columns} fileLabel={result.fileA.name || "File 1"} />
+            <NormalizationStatusList columns={result.fileB.columns} fileLabel={result.fileB.name || "File 2"} />
           </div>
 
           <ResultsTable

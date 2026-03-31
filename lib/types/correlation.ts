@@ -43,7 +43,7 @@ export interface ColumnProfile {
   maskedRatio: number;
   repeatedValueRatio: number;
   topFrequentValues: string[];
-  uniqueValueSet: Set<string>;
+  uniqueValueSet: string[];
   frequencyMap: Record<string, number>;
   transformedSignatures: Record<string, string[]>;
   observedType: ObservedType;

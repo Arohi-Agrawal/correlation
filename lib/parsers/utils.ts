@@ -32,7 +32,12 @@ export function inferHeaders(rows: unknown[][]): { headers: string[]; dataRows: 
     return { headers, dataRows: rows.slice(1) };
   }
 
-  const width = Math.max(...rows.map((r) => r.length), 0);
+  let width = 0;
+  for (const row of rows) {
+    if (row.length > width) {
+      width = row.length;
+    }
+  }
   const generated = Array.from({ length: width }, (_, i) => `Column_${i + 1}`);
   return { headers: generated, dataRows: rows };
 }

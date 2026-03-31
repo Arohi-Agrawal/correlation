@@ -164,9 +164,9 @@ function buildProfile(column: ParsedColumn): ProfiledColumn {
   return {
     column,
     observedType: detectObservedType(fullNonNull),
-    inferredType: baseProfile.inferredType,
+    inferredType: baseProfile.observedType as InferredColumnType,
     nullRatio: baseProfile.nullRatio,
-    uniquenessRatio: baseProfile.uniquenessRatio,
+    uniquenessRatio: baseProfile.distinctRatio,
     sampleValues,
     rawSet: toSet(fullNonNull),
     sampleSet: toSet(fullNonNull),
@@ -759,7 +759,10 @@ function addDerivedDateMatches(
 export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): CorrelationResponse {
   const sourceProfiles = fileA.columns.map((column) => buildProfile(column));
   const targetProfiles = fileB.columns.map((column) => buildProfile(column));
-  const targetById = new Map(targetProfiles.map((item) => [item.column.id, item]));
+  const acceptedTargetIdsBySource = new Map<string, Set<string>>();
+  // Use plain objects/arrays only for all lookups
+  const targetById: Record<string, ProfiledColumn> = {};
+  targetProfiles.forEach((item) => { targetById[item.column.id] = item; });
 
   const sourceSchema = schemaSanityCheck(fileA, sourceProfiles);
   const targetSchema = schemaSanityCheck(fileB, targetProfiles);
@@ -777,7 +780,7 @@ export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): Co
   const rejectedMatches: RejectedMatch[] = [];
   const duplicateOrSuspicious: RejectedMatch[] = [];
   const unmatched: UnmatchedColumn[] = [];
-  const acceptedTargetIdsBySource = new Map<string, Set<string>>();
+  // acceptedTargetIdsBySource is only used internally, do not include in response
 
   const results: CorrelationResultItem[] = sourceProfiles.map((source) => {
     const headerTrust = sourceSchema.trustByColumnId[source.column.id] ?? "medium";
@@ -790,7 +793,7 @@ export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): Co
 
     const deepCandidates = shortlist
       .map((quick) => {
-        const target = targetById.get(quick.targetId);
+        const target = targetById[quick.targetId];
         if (!target) return null;
         const isDuplicateTarget = (canonicalByColumnId[target.column.id] ?? target.column.id) !== target.column.id;
         return buildCandidate(source, target, headerTrust, isDuplicateTarget);
@@ -806,7 +809,7 @@ export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): Co
     }> = [];
 
     for (const candidate of deepCandidates) {
-      const target = targetById.get(candidate.targetColumnId);
+      const target = targetById[candidate.targetColumnId];
       if (!target) continue;
 
       const overlap = buildOverlapMetrics(source, target);
@@ -997,23 +1000,27 @@ export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): Co
     });
   });
 
-  const sourceById = new Map(sourceProfiles.map((profile) => [profile.column.id, profile]));
-  const targetProfileById = new Map(targetProfiles.map((profile) => [profile.column.id, profile]));
+  // Use plain objects for lookups, not Maps
+  const sourceById: Record<string, any> = {};
+  sourceProfiles.forEach((profile) => { sourceById[profile.column.id] = profile; });
+  const targetProfileById: Record<string, any> = {};
+  targetProfiles.forEach((profile) => { targetProfileById[profile.column.id] = profile; });
   const acceptedAll = [...exactMatches, ...exactPartialMatches, ...strongDomainMatches, ...transformedMatches, ...semanticMatches];
-  const acceptedByTarget = new Map<string, FinalizedMatch[]>();
+  // Use plain object for acceptedByTarget
+  const acceptedByTarget: Record<string, FinalizedMatch[]> = {};
   acceptedAll.forEach((item) => {
-    if (!acceptedByTarget.has(item.targetColumnId)) {
-      acceptedByTarget.set(item.targetColumnId, []);
+    if (!acceptedByTarget[item.targetColumnId]) {
+      acceptedByTarget[item.targetColumnId] = [];
     }
-    acceptedByTarget.get(item.targetColumnId)!.push(item);
+    acceptedByTarget[item.targetColumnId].push(item);
   });
 
-  acceptedByTarget.forEach((group, targetId) => {
+  Object.entries(acceptedByTarget).forEach(([targetId, group]) => {
     if (group.length <= 1) return;
 
     const ranked = [...group].sort((a, b) => {
-      const aSource = sourceById.get(a.sourceColumnId);
-      const bSource = sourceById.get(b.sourceColumnId);
+      const aSource = sourceById[a.sourceColumnId];
+      const bSource = sourceById[b.sourceColumnId];
       const aAlignment = aSource ? headerBusinessAlignmentScore(aSource.column.originalName, aSource.observedType) : 0;
       const bAlignment = bSource ? headerBusinessAlignmentScore(bSource.column.originalName, bSource.observedType) : 0;
       const aScore = a.confidence + aAlignment * 0.4;
@@ -1040,8 +1047,8 @@ export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): Co
     removeByIdentity(semanticMatches);
 
     losers.forEach((loser) => {
-      const source = sourceById.get(loser.sourceColumnId);
-      const target = targetProfileById.get(targetId);
+      const source = sourceById[loser.sourceColumnId];
+      const target = targetProfileById[targetId];
       if (!source || !target) return;
 
       const overlap = buildOverlapMetrics(source, target);
@@ -1180,5 +1187,6 @@ export function buildCorrelationMatrix(fileA: ParsedFile, fileB: ParsedFile): Co
       duplicateOrSuspicious,
       unmatched
     )
+    // All Maps/Sets are now removed from the response
   };
 }
