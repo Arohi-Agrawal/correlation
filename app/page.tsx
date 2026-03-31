@@ -1,6 +1,8 @@
 
 "use client";
 import { profileColumn } from "@/lib/correlation/profiler";
+import { buildCorrelationMatrix } from "@/lib/correlation/matcher";
+import { attachExplainability } from "@/lib/correlation/resultFormatter";
 import { computeNormalizationScore } from "@/lib/normalization/normalizationScore";
 
 function NormalizationStatusList({ columns, fileLabel }: { columns: any[]; fileLabel: string }) {
@@ -39,7 +41,7 @@ import { UploadCard } from "@/components/UploadCard";
 import { createFeedbackStore } from "@/lib/feedback/store";
 import { correlationResultsToCsv } from "@/lib/export/csv";
 import { SAMPLE_FILE_A_CSV, SAMPLE_FILE_B_CSV } from "@/lib/mock/sampleData";
-import { fileToBase64, LocalParsedPreview, parseClientFilePreview } from "@/lib/parsers/client";
+import { LocalParsedPreview, parseClientFile, parseClientFilePreview } from "@/lib/parsers/client";
 import { CorrelationResponse, FeedbackEntry } from "@/lib/types";
 import { downloadTextFile } from "@/lib/utils/download";
 
@@ -133,33 +135,12 @@ export default function HomePage() {
     setError(null);
 
     try {
-      const [base64A, base64B] = await Promise.all([fileToBase64(fileA), fileToBase64(fileB)]);
+      const [parsedA, parsedB] = await Promise.all([
+        parseClientFile(fileA, "A", previewA.selectedSheet),
+        parseClientFile(fileB, "B", previewB.selectedSheet)
+      ]);
 
-      const response = await fetch("/api/correlate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileA: {
-            fileName: fileA.name,
-            extension: previewA.extension,
-            sheetName: previewA.selectedSheet,
-            contentBase64: base64A
-          },
-          fileB: {
-            fileName: fileB.name,
-            extension: previewB.extension,
-            sheetName: previewB.selectedSheet,
-            contentBase64: base64B
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Correlation request failed");
-      }
-
-      const data = (await response.json()) as CorrelationResponse;
+      const data = attachExplainability(buildCorrelationMatrix(parsedA, parsedB)) as CorrelationResponse;
       setResult(data);
       setSelectedResultId(null);
     } catch (err) {

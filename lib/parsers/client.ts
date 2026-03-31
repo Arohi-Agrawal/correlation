@@ -1,7 +1,9 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { FileSide, ParsedFile } from "@/lib/types";
 import { inferHeaders } from "@/lib/parsers/utils";
 import { normalizeCellValue } from "@/lib/normalization/values";
+import { rowsToColumns } from "@/lib/parsers/utils";
 
 export interface LocalParsedPreview {
   fileName: string;
@@ -81,6 +83,51 @@ export async function parseClientFilePreview(file: File, selectedSheet?: string)
 
     const { headers, dataRows } = inferHeaders(rows);
     return buildPreview(file.name, extension, headers, dataRows, sheetName, workbook.SheetNames);
+  }
+
+  throw new Error("Unsupported file type. Allowed: csv, txt, xls, xlsx");
+}
+
+export async function parseClientFile(file: File, side: FileSide, selectedSheet?: string): Promise<ParsedFile> {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+
+  if (["csv", "txt"].includes(extension)) {
+    const text = await file.text();
+    const parsed = Papa.parse<string[]>(text, {
+      delimiter: "",
+      skipEmptyLines: "greedy",
+      dynamicTyping: false
+    });
+
+    if (parsed.errors.length) {
+      throw new Error(parsed.errors[0].message);
+    }
+
+    const rows = parsed.data as unknown[][];
+    const { headers, dataRows } = inferHeaders(rows);
+    return rowsToColumns(side, headers, dataRows, file.name);
+  }
+
+  if (["xls", "xlsx"].includes(extension)) {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array", raw: false, cellDates: false });
+    const sheetName = selectedSheet && workbook.SheetNames.includes(selectedSheet)
+      ? selectedSheet
+      : workbook.SheetNames[0];
+
+    if (!sheetName) {
+      throw new Error("No sheet available in workbook");
+    }
+
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], {
+      header: 1,
+      raw: false,
+      blankrows: false,
+      defval: null
+    });
+
+    const { headers, dataRows } = inferHeaders(rows);
+    return rowsToColumns(side, headers, dataRows, file.name, sheetName, workbook.SheetNames);
   }
 
   throw new Error("Unsupported file type. Allowed: csv, txt, xls, xlsx");
